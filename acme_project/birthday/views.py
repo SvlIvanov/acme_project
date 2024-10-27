@@ -1,13 +1,14 @@
 from django.core.paginator import Paginator
+from django.contrib.auth.decorators import login_required
 from django.contrib.auth.mixins import LoginRequiredMixin, UserPassesTestMixin
 from django.views.generic import (
     CreateView, DeleteView, DetailView, ListView, UpdateView
     )
 from django.shortcuts import get_object_or_404, redirect, render
-from django.urls import reverse_lazy
+from django.urls import reverse_lazy, reverse
 
-from .forms import BirthdayForm
-from .models import Birthday
+from .forms import BirthdayForm, CongratulationForm
+from .models import Birthday, Congratulation
 from .utils import calculate_birthday_countdown
 
 
@@ -19,8 +20,8 @@ class OnlyAuthorMixin(UserPassesTestMixin):
 
     def test_func(self):
         object = self.get_object()
-        return object.author == self.request.user 
-    
+        return object.author == self.request.user
+
 
 class BirthdayDeleteView(
     OnlyAuthorMixin, LoginRequiredMixin, BirthdayMixin, DeleteView
@@ -54,6 +55,10 @@ class BirthdayDetailView(BirthdayMixin, DetailView):
             # Дату рождения берём из объекта в словаре context:
             self.object.birthday
         )
+        context['form'] = CongratulationForm()
+        context['congratulations'] = (
+            self.object.congratulations.select_related('author')
+        )
         # Возвращаем словарь контекста.
         return context
 
@@ -62,6 +67,46 @@ class BirthdayListView(ListView):
     model = Birthday
     ordering = 'id'
     paginate_by = 5
+
+
+class CongratulationCreateView(LoginRequiredMixin, CreateView):
+    birthday = None
+    model = Congratulation
+    form_class = CongratulationForm
+
+    # Переопределяем dispatch()
+    def dispatch(self, request, *args, **kwargs):
+        self.birthday = get_object_or_404(Birthday, pk=kwargs['pk'])
+        return super().dispatch(request, *args, **kwargs)
+
+    # Переопределяем form_valid()
+    def form_valid(self, form):
+        form.instance.author = self.request.user
+        form.instance.birthday = self.birthday
+        return super().form_valid(form)
+
+    # Переопределяем get_success_url()
+    def get_success_url(self):
+        return reverse('birthday:detail', kwargs={'pk': self.birthday.pk})
+
+
+# @login_required
+# def add_comment(request, pk):
+#     # Получаем объект дня рождения или выбрасываем 404 ошибку.
+#     birthday = get_object_or_404(Birthday, pk=pk)
+#     # Функция должна обрабатывать только POST-запросы.
+#     form = CongratulationForm(request.POST)
+#     if form.is_valid():
+#         # Создаём объект поздравления, но не сохраняем его в БД.
+#         congratulation = form.save(commit=False)
+#         # В поле author передаём объект автора поздравления.
+#         congratulation.author = request.user
+#         # В поле birthday передаём объект дня рождения.
+#         congratulation.birthday = birthday
+#         # Сохраняем объект в БД.
+#         congratulation.save()
+#     # Перенаправляем пользователя назад, на страницу дня рождения.
+#     return redirect('birthday:detail', pk=pk)
 
 
 # def delete_birthday(request, pk):
